@@ -1,3 +1,4 @@
+
 /*
 ** server.c -- a stream socket server demo
 */
@@ -26,7 +27,7 @@
 #define HTTP_NOT_FOUND 		"HTTP/1.1 404 Not Found\r\n\r\n"
 #define HTTP_BAD_REQUEST 	"HTTP/1.1 400 Bad Request\r\n\r\n"
 
-void sigchld_handler(int s)
+void sigchld_handler() //int s
 {
 	while(waitpid(-1, NULL, WNOHANG) > 0);
 }
@@ -39,6 +40,24 @@ void *get_in_addr(struct sockaddr *sa)
 	}
 
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+int headlen(char* origin, char* sub){
+	int result;
+	char* tail = strstr(origin,sub);
+	if (tail == NULL){
+		result = strlen(origin);
+	}
+	else{
+		result = strlen(origin) - strlen(tail);
+	}
+
+	return result;
+}
+void substr(char* dest, char* src, unsigned int cnt){
+	strncpy(dest, src, cnt);
+	dest[cnt] = '\0';
+
 }
 
 void serve_http(int sockfd)
@@ -63,14 +82,27 @@ void serve_http(int sockfd)
 	printf("Received request: %s\n", buf);
 	
 	// parse request
-	req_ptr = strtok(buf, "\r\n");
+	int temp = headlen(buf, "\r\n");
+	req_ptr = malloc(temp+1);
+	substr(req_ptr, buf, temp);
+	// printf("\nreq_ptr:%s",req_ptr);
 
-	method = strtok(req_ptr, " ");
-	path = strtok(NULL, " ");
-	protocol = strtok(NULL, " ");
+	temp = headlen(req_ptr," ");
+	method = malloc(temp+1);
+	substr(method, req_ptr, temp);
+	// printf("\nmethod:%s",method);
 
+	char* url = strstr(req_ptr, " ")+1;
+	protocol = strstr(url, " ")+1;
+	// printf("\nprotocol:%s",protocol);
+
+
+	temp = headlen(url, " ");
+	path = malloc(temp+1);
+	substr(path, url, temp);
+	// printf("\npath:%s",path);
 	// validate request
-	if (req_ptr == NULL || method == NULL || path == NULL || protocol == NULL || strtok(NULL, " ") != NULL || 
+	if (req_ptr == NULL || method == NULL || path == NULL || protocol == NULL || 
 		strcmp(method, HTTP_GET) != 0 || strcmp(protocol, HTTP_PROTOCOL) != 0 || strcmp(path, "/") == 0) {
 			// TODO: Invalid request
 			send(sockfd, HTTP_BAD_REQUEST, strlen(HTTP_BAD_REQUEST), 0);
@@ -124,7 +156,9 @@ void serve_http(int sockfd)
 			numbytes -= bytes_sent;
 		}
 	}
-
+	free(path-1);
+	free(req_ptr);
+	free(method);
 	// done sending file
 	fclose(fp);
 }
