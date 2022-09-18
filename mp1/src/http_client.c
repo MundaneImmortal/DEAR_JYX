@@ -35,15 +35,24 @@ void *get_in_addr(struct sockaddr *sa)
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int get_http_status(char *response)
-{
-	strtok(response, " ");
-	char *status = strtok(NULL, " ");
-	return atoi(status);
+int headlen(char* origin, char* sub){
+	int result;
+	char* tail = strstr(origin,sub);
+	if (tail == NULL){
+		result = strlen(origin);
+	}
+	else{
+		result = strlen(origin) - strlen(tail);
+	}
+
+	return result;
 }
-/* Steps
-	1. Parse input from commandline
- */
+void substr(char* dest, char* src, unsigned int cnt){
+	strncpy(dest, src, cnt);
+	dest[cnt] = '\0';
+
+}
+
 int main(int argc, char *argv[])
 {
 	int sockfd, numbytes;  
@@ -57,15 +66,29 @@ int main(int argc, char *argv[])
 	    fprintf(stderr,"usage: client url\n");
 	    exit(1);
 	}
-	protocol = strtok(argv[1], "://");
-	host = strtok(NULL, "/");
-	path = strtok(NULL, "");
 
-	host_ip = strtok(host, ":");
-	port = strtok(NULL, ""); if (port == NULL) {
+	int temp = headlen(argv[1], "//");
+	protocol = malloc(temp+1);
+	substr(protocol, argv[1], temp-1);
+
+	char* url = strstr(argv[1], "//") + 2;
+	temp = headlen(url, "/");
+	path = strstr(url, "/");
+	host = malloc(temp+1);
+	substr(host, url, temp);
+
+	if(headlen(host,":") == temp){
 		port = HTTP_PORT;
+		host_ip = malloc(temp+1);
+		substr(host_ip, host, temp);
 	}
-
+	else{
+		temp = headlen(host,":");
+		port = strstr(host, ":")+1;
+		host_ip = malloc(temp+1);
+		substr(host_ip, host, temp);
+	}
+	printf("\nprotocol:%s,host:%s, host_ip:%s, port:%s,path:%s",protocol,host,host_ip,port,path);
 	if (strcmp(protocol, HTTP) || host == NULL || path == NULL || 
 			atoi(port) < 0 || atoi(port) > 65535) {
 			
@@ -80,8 +103,15 @@ int main(int argc, char *argv[])
 
 	if ((rv = getaddrinfo(host_ip, port, &hints, &servinfo)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+		free(protocol);
+		free(host);
+		free(host_ip);
+
 		return 1;
 	}
+	free(protocol);
+	free(host);
+	free(host_ip);
 
 	// loop through all the results and connect to the first we can
 	for(p = servinfo; p != NULL; p = p->ai_next) {
@@ -117,7 +147,7 @@ int main(int argc, char *argv[])
 			strlen(NEWLINE) + strlen(NEWLINE) + 1;
 	
 	char *request = malloc(request_len);
-	snprintf(request, request_len, "%s /%s %s%s%s", HTTP_GET, path, HTTP_PROTOCOL, NEWLINE, NEWLINE);
+	snprintf(request, request_len, "%s %s %s%s%s", HTTP_GET, path, HTTP_PROTOCOL, NEWLINE, NEWLINE);
 	printf("request: %s", request);
 	
 	// send request
@@ -129,29 +159,8 @@ int main(int argc, char *argv[])
 	}
 	free(request);
 
-	// TODO: the actual number of bytes sent should always be checked before proceeding
 	// receive response
 	char buf[BUF_SIZE] = {'\0'};
-	char buf_copy[BUF_SIZE] = {'\0'};
-	if ((numbytes = recv(sockfd, buf, BUF_SIZE-1, 0)) == -1) {
-		perror("recv");
-		close(sockfd);
-		return 1;
-	}
-	strcpy(buf_copy, buf);
-	
-	// take the response header and print it out
-	char *response_header = strtok(buf, SEPARATOR);
-	printf("response: %s\n", buf);
-	printf("response header: %s\n", response_header);
-	char *response_body = &buf_copy[strlen(response_header) + strlen(SEPARATOR)];
-	printf("response body: %s", response_body);
-
-	if (get_http_status(response_header) != 200) {
-		// no need to print the body
-		close(sockfd);
-		return 1;
-	}
 
 	// write the response body to a file
 	FILE *output_file = fopen(OUTPUT_FILE, "wb");
@@ -160,11 +169,31 @@ int main(int argc, char *argv[])
 		close(sockfd);
 		return 1;
 	}
-
-	fwrite(response_body, 1, strlen(response_body), output_file);
-	while ((numbytes = recv(sockfd, buf, BUF_SIZE-1, 0)) > 0) {
-		fwrite(buf, 1, numbytes, output_file);
+	
+    int pkg_1 = 0;
+	int cnt = 0;
+	while(1){
+		memset(buf, '\0', BUF_SIZE);
+		if ((numbytes = recv(sockfd, buf, BUF_SIZE-1, 0)) <= 0) {
+			perror("recv");
+			close(sockfd);
+			return 1;
+		}
+		else{
+			cnt += 1;
+			if (pkg_1 == 1){
+				pkg_1 = 0;
+				char* resp_body = strstr(buf, SEPARATOR)+4;
+				fwrite(resp_body, 1, strlen(resp_body), output_file);
+			}
+			else{
+				fwrite(buf, 1, BUF_SIZE, output_file);
+			}
+			printf("cnt:%d",cnt);
+		}
 	}
+
+
 	printf("server closed connection\n");
 
 	fclose(output_file);
